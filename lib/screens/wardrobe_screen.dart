@@ -107,6 +107,8 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
   List<String> _selectedSeasons = [];
 
   late String userId;
+  String? _processedImageUrl; // 서버에서 처리된 이미지 URL
+  String? _imagePath; // 이미지 경로를 저장할 변수
 
   @override
   void initState() {
@@ -163,12 +165,66 @@ class _WardrobeScreenState extends State<WardrobeScreen> {
 
   // 이미지를 선택하는 함수
   Future<void> _pickImage(ImageSource source) async {
+    _selectedSubColorCategory = null;
+    _selectedStyleCategory = null;
+    _selectedColorCategory = null;
+    _selectedDetailCategory = [];
+    _selectedPrintCategory = [];
+    _selectedMaterialCategory = [];
+    _selectedSleeveCategory = null;
+    _selectedShirtSleeveCategory = null;
+    _selectedNecklineCategory = null;
+    _selectedCollarCategory = null;
+    _selectedFitCategory = null;
+    _selectedSeasons = [];
     _selectedWeather = [];
     Map<String, String>? imageInfo = await _imageRepository.uploadImage(userId, source);
     if (imageInfo != null) {
-      _showCategoryDialog(imageInfo);  // 이미지 업로드 후, 카테고리 선택 다이얼로그 호출
+      setState(() {
+        _processedImageUrl = imageInfo['image']; // 서버에서 처리된 이미지 URL
+        _imagePath = imageInfo['path']; // 이미지 경로 저장
+      });
+      _showProcessedImageDialog(imageInfo);  // 이미지 업로드 후, 카테고리 선택 다이얼로그 호출
     }
   }
+
+  // 배경이 제거된 이미지를 보여주는 다이얼로그
+  Future<void> _showProcessedImageDialog(Map<String, String> imageInfo) async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false, // 다이얼로그 외부 클릭으로 닫히지 않도록 설정
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('이미지를 확인해주세요'),
+          content: _processedImageUrl != null
+              ? CachedNetworkImage(
+            imageUrl: _processedImageUrl!,
+            fit: BoxFit.cover,
+            placeholder: (context, url) => CircularProgressIndicator(),
+            errorWidget: (context, url, error) => Icon(Icons.error),
+          )
+              : Center(child: CircularProgressIndicator()),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // 다이얼로그 닫기
+                _showCategoryDialog(imageInfo); // 카테고리 선택 다이얼로그로 이동
+              },
+              child: Text('확인'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // 다이얼로그 닫기
+                _showImageSourceDialog(); // 이미지 소스 선택으로 다시 돌아가기
+              },
+              child: Text('취소'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
   Future<void> _showCategoryDialog(Map<String, String> imageInfo) async {
     String? dialogSelectedCategory; // 다이얼로그 내에서 사용할 카테고리 변수

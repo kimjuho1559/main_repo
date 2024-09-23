@@ -42,7 +42,7 @@ class _BoardScreenState extends State<BoardScreen> {
       print('Response body: ${response.body}');
     }
   }
-
+  
   Future<void> _loadCategoryPosts(String selectedCategory) async {
     final url = Uri.parse('${dotenv.env['API_URL']}/boards/${userId}/$selectedCategory');
     final boardProvider = Provider.of<BoardProvider>(context, listen: false);

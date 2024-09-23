@@ -1,4 +1,11 @@
+import 'dart:convert';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+
+import '../provider/userprovider.dart';
 
 class RecommendationScreen extends StatefulWidget {
   @override
@@ -9,6 +16,13 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   String? selectedCategory;
   String? selectedSeason;
   bool _isLoading = false;
+
+  List<String> docIds = [];
+
+  String? topImageUrl;
+  String? bottomImageUrl;
+  String? outerImageUrl;
+  String? dressImageUrl;
 
   final Map<String, List<String>> styleCategories = {
     "클래식": ["클래식", "프레피"],
@@ -24,18 +38,146 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
   };
 
   final List<String> seasons = ["봄", "여름", "가을", "겨울"];
+  late String userId;
+  void initState() {
+    super.initState();
+    // Provider에서 userId 가져오기
+    userId = Provider.of<UserProvider>(context, listen: false).userId;
 
-  void _generateOutfit() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    await Future.delayed(Duration(seconds: 2));
-
-    setState(() {
-      _isLoading = false;
-    });
+    // 데이터를 가져오는 함수 호출
   }
+  Future<void> _sendDataToPythonServer() async {
+    try {
+      setState(() {
+        _isLoading = true;
+      });
+
+      // 선택한 StyleCategories와 Seasons 데이터를 준비
+      Map<String, dynamic> data = {
+        'userId': userId,
+        'styleCategory': selectedCategory,
+        'season': selectedSeason
+      };
+
+      // Python 서버 URL (실제 서버 IP로 변경 필요)
+      String url = 'http://54.180.224.157:5000/get-doc-ids';
+
+      // POST 요청으로 Python 서버에 데이터 전송
+      var response = await http.post(
+        Uri.parse(url),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(data),
+      );
+
+      // 서버로부터 받은 데이터를 처리
+      if (response.statusCode == 200) {
+        var jsonResponse = jsonDecode(response.body);
+        List<String> fetchedDocIds = List<String>.from(jsonResponse['docIds']);
+        setState(() {
+          docIds = fetchedDocIds;
+        });
+        await _fetchOutfitImages();  // Firebase에서 이미지 가져오기
+      } else {
+        print('Error: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error sending data to Python server: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _fetchOutfitImages() async {
+    try {
+      for (String docId in docIds) {
+        DocumentSnapshot doc = await FirebaseFirestore.instance
+            .collection('images')
+            .doc(docId)
+            .get();
+
+        if (doc.exists) {
+          String imageUrl = doc['image'];
+          String category = doc['category'];
+
+          if (category == '상의') {
+            topImageUrl = imageUrl;
+          } else if (category == '하의') {
+            bottomImageUrl = imageUrl;
+          } else if (category == '아우터') {
+            outerImageUrl = imageUrl;
+          } else if (category == '원피스') {
+            dressImageUrl = imageUrl;
+          }
+        }
+      }
+    } catch (e) {
+      print('Error fetching images: $e');
+    }
+  }
+
+  Widget _buildOutfitDisplay() {
+    return Center(
+      child: Stack(
+        children: [
+          // 아우터가 가장 뒤에 나타남
+          if (outerImageUrl != null)
+            Positioned(
+              top: 15, // 아우터를 더 위로 이동
+              left: 20, // 살짝 왼쪽으로 이동
+              child: SizedBox(
+                height: 180,
+                child: Image.network(
+                  outerImageUrl!,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+          // 상의가 아우터 위에 나타남
+          if (topImageUrl != null)
+            Positioned(
+              top: 55, // 상의를 살짝 위로 올림
+              left: 100, // 중앙에서 좀 더 오른쪽으로 이동
+              child: SizedBox(
+                height: 160,
+                child: Image.network(
+                  topImageUrl!,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+          // 하의는 상의보다 위로 올라가고 오른쪽으로 이동
+          if (bottomImageUrl != null)
+            Positioned(
+              top: 130, // 하의를 좀 더 위로 이동
+              left: 170, // 오른쪽으로 이동
+              child: SizedBox(
+                height: 150,
+                child: Image.network(
+                  bottomImageUrl!,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+          // 원피스가 있으면 상의, 하의 대신 원피스만 나타남
+          if (dressImageUrl != null)
+            Positioned(
+              top: 50,
+              left: 100, // 중앙에 배치
+              child: SizedBox(
+                height: 220,
+                child: Image.network(
+                  dressImageUrl!,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
 
   Widget _buildSeasonButton(String season) {
     return Expanded(
@@ -134,7 +276,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
             ),
             SizedBox(height: 20),
             ElevatedButton(
-              onPressed: _generateOutfit,
+              onPressed: _sendDataToPythonServer,
               child: Text(
                 'AI 코디 생성하기!',
                 style: TextStyle(
@@ -165,10 +307,7 @@ class _RecommendationScreenState extends State<RecommendationScreen> {
                     borderRadius: BorderRadius.circular(20.0),
                   ),
                   child: Center(
-                    child: Text(
-                      '코디 화면 (대체 이미지)',
-                      style: TextStyle(fontSize: 18, color: Colors.black54),
-                    ),
+                    child: _buildOutfitDisplay(),
                   ),
                 ),
               ),
